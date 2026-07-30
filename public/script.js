@@ -566,6 +566,7 @@
           zoom: 6.5,
           zoomControl: false,
         });
+        L.control.zoom({ position: "topleft" }).addTo(map);
         tileLayer = buildTileLayer(currentLayerId);
         tileLayer.addTo(map);
         /* Camada de poligonos: e a UNICA representacao visual dos registros

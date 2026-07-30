@@ -70,7 +70,18 @@ table.dataPreview th { background: var(--bg); position: sticky; top:0; }
 .mapStatChip .lbl { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px; }
 .mapStatDot { width:9px; height:9px; border-radius:50%; display:inline-block; flex-shrink:0; }
 .mapMain { position:relative; border:1px solid var(--border); border-radius: var(--radius); overflow:hidden; background: var(--surface); }
-#mapCanvas { position:absolute; inset:0; }
+/* z-index:0 (em vez de "auto") forca o Leaflet a virar um stacking context
+ * PROPRIO: os panes internos dele (tile=200, overlay=400, shadow=500,
+ * marker=600, tooltip=650, popup=700 -- definidos em leaflet.css) passam a
+ * ser resolvidos DENTRO desse contexto local, em vez de "vazarem" para o
+ * stacking context raiz do documento (o que acontecia antes, ja que nem
+ * #mapCanvas nem .mapMain tinham z-index numerico e portanto nao criavam
+ * contexto algum). Sem isso, o mapa inteiro era pintado por cima dos
+ * controles (z-index:5), que ficavam permanentemente escondidos -- so
+ * "vazavam" para a tela por uma fração de segundo durante a animacao de
+ * zoom, quando o pane transformado (scale/translate) deixava de cobrir os
+ * cantos do container por um instante. */
+#mapCanvas { position:absolute; inset:0; z-index:0; }
 .mapToolbar { position:absolute; top:10px; left:10px; right:10px; z-index:5; display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap; pointer-events:none; }
 .mapToolbar > * { pointer-events:auto; }
 .mapSearchBox { flex:1; min-width:220px; max-width:360px; background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow: var(--shadow); display:flex; align-items:center; padding:0 10px; }
