@@ -40,7 +40,7 @@ if (missingEnv.length) {
   console.error(
     "[BOOT] Consulte README.md / .env.example. A aplicacao nao sera iniciada.",
   );
-  process.exit(1);
+  if (require.main === module) process.exit(1);
 }
 
 /* ### REGIAO: LOGGER SIMPLES ### */
@@ -186,7 +186,16 @@ async function previewTable(tableName, limit) {
 
 /* ### REGIAO: EXPRESS APP ### */
 const app = express();
-app.use(express.static(path.join(__dirname)));
+app.use(
+  express.static(__dirname, {
+    index: false,
+    extensions: false,
+    dotfiles: "deny",
+    setHeaders: () => {},
+  }),
+);
+app.use("/css", express.static(path.join(__dirname, "css")));
+app.use("/js", express.static(path.join(__dirname, "js")));
 if (CONFIG.TRUST_PROXY) app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(express.json({ limit: "5mb" }));
@@ -709,12 +718,15 @@ async function start() {
       "boot",
       "Falha ao conectar ao PostgreSQL na inicializacao: " + err.message,
     );
-    process.exit(1);
+    if (require.main === module) process.exit(1);
+    throw err;
   }
 
-  app.listen(CONFIG.PORT, () => {
-    logEvent("info", "boot", "Servidor iniciado na porta " + CONFIG.PORT);
-  });
+  if (require.main === module) {
+    app.listen(CONFIG.PORT, () => {
+      logEvent("info", "boot", "Servidor iniciado na porta " + CONFIG.PORT);
+    });
+  }
 }
 
 process.on("unhandledRejection", (reason) => {
@@ -726,4 +738,16 @@ process.on("uncaughtException", (err) => {
   logEvent("error", "process", "Uncaught Exception", { error: err.message });
 });
 
-start();
+if (require.main === module) {
+  start();
+} else {
+  ensureSystemTables().catch((err) =>
+    logEvent(
+      "error",
+      "boot",
+      "Falha ao garantir tabelas (serverless): " + err.message,
+    ),
+  );
+}
+
+module.exports = app;
