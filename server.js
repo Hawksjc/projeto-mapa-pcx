@@ -186,7 +186,7 @@ async function previewTable(tableName, limit) {
 
 /* ### REGIAO: EXPRESS APP ### */
 const app = express();
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname)));
 if (CONFIG.TRUST_PROXY) app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(express.json({ limit: "5mb" }));
@@ -220,7 +220,10 @@ try {
     );
   }
   app.use("/vendor/leaflet", express.static(LEAFLET_DIST));
-  app.use("/vendor/leaflet.markercluster", express.static(LEAFLET_CLUSTER_DIST));
+  app.use(
+    "/vendor/leaflet.markercluster",
+    express.static(LEAFLET_CLUSTER_DIST),
+  );
   console.log(
     "[BOOT] Assets locais do Leaflet configurados em /vendor/leaflet e /vendor/leaflet.markercluster (sem dependencia de CDN externo).",
   );
@@ -539,7 +542,10 @@ app.get("/api/mapa", async (req, res) => {
     const alias = "t";
     const cols = await resolveMapColumns(config.schema, config.table);
     console.log("[mapa] Colunas resolvidas:", cols);
-    const { latSql, lngSql, geomGeoJsonSql } = buildLatLngExpr(spatialCol, alias);
+    const { latSql, lngSql, geomGeoJsonSql } = buildLatLngExpr(
+      spatialCol,
+      alias,
+    );
     console.log(
       "[mapa] Conversao de geometria -> lat/lng:",
       `lat=${latSql}`,
@@ -582,13 +588,21 @@ app.get("/api/mapa", async (req, res) => {
         if (geom_geojson) {
           try {
             const parsed = JSON.parse(geom_geojson);
-            if (parsed && (parsed.type === "Polygon" || parsed.type === "MultiPolygon")) {
+            if (
+              parsed &&
+              (parsed.type === "Polygon" || parsed.type === "MultiPolygon")
+            ) {
               geometry = parsed;
             }
           } catch (e) {
-            logEvent("error", "mapa", "Falha ao parsear geom_geojson de um registro", {
-              error: e.message,
-            });
+            logEvent(
+              "error",
+              "mapa",
+              "Falha ao parsear geom_geojson de um registro",
+              {
+                error: e.message,
+              },
+            );
           }
         }
         return {
@@ -665,9 +679,7 @@ app.get("/healthz", async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-    res.sendFile("index.html", {
-        root: path.join(__dirname, "public")
-    });
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
 /* ### REGIAO: TRATAMENTO DE ERROS GLOBAL ### */
@@ -706,7 +718,9 @@ async function start() {
 }
 
 process.on("unhandledRejection", (reason) => {
-  logEvent("error", "process", "Unhandled Rejection", { reason: String(reason) });
+  logEvent("error", "process", "Unhandled Rejection", {
+    reason: String(reason),
+  });
 });
 process.on("uncaughtException", (err) => {
   logEvent("error", "process", "Uncaught Exception", { error: err.message });

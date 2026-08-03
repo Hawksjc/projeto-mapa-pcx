@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mapa de Empreendimentos</title>
+    <!-- Biblioteca do mapa (Leaflet + Leaflet.markercluster): arquivos LOCAIS,
+     instalados via NPM e servidos pelo proprio Express (/vendor/leaflet e
+     /vendor/leaflet.markercluster) -- NENHUM script/CSS e carregado de CDN
+     externo. Isso evita o erro "Nao foi possivel carregar a biblioteca do
+     mapa", comum em redes corporativas que bloqueiam dominios de CDN. -->
+    <link rel="stylesheet" href="/vendor/leaflet/leaflet.css" />
+    <link
+      rel="stylesheet"
+      href="/vendor/leaflet.markercluster/MarkerCluster.css"
+    />
+    <link
+      rel="stylesheet"
+      href="/vendor/leaflet.markercluster/MarkerCluster.Default.css"
+    />
+    <link rel="stylesheet" href="./css/styles.css" />
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="brand"><span class="dot"></span> Mapa de Empreendimentos</div>
+    </div>
+
+    <div class="page">
+      <!-- ===== TELA DE SELECAO: aparece antes do mapa abrir ===== -->
+      <div id="mapSelectView">
+        <h2>Mapa</h2>
+        <p class="subtitle">
+          Escolha a tabela do banco e a coluna de localizacao para visualizar os
+          registros no mapa.
+        </p>
+        <div id="mapSelectError" class="errorMsg hidden"></div>
+
+        <div id="mapSelectStepTable">
+          <div class="field">
+            <label>Passo 1 de 2 &mdash; Tabela de origem</label
+            ><input
+              class="searchBox"
+              id="mapSelectTableSearch"
+              placeholder="Pesquisar tabela..."
+            />
+            <div class="tableList" id="mapSelectTableList"></div>
+          </div>
+          <div class="tablePreviewWrap hidden" id="mapSelectPreviewWrap">
+            <table class="dataPreview" id="mapSelectPreviewTable"></table>
+          </div>
+        </div>
+
+        <div id="mapSelectStepColumn" class="hidden">
+          <p class="small">
+            Tabela selecionada: <strong id="mapSelectSelectedTable"></strong>
+          </p>
+          <label
+            >Passo 2 de 2 &mdash; Coluna responsavel pela localizacao</label
+          >
+          <div
+            class="tableList"
+            id="mapSelectColumnList"
+            style="margin-top: 6px"
+          ></div>
+          <p
+            class="small hidden"
+            id="mapSelectNoSpatial"
+            style="margin-top: 8px"
+          >
+            Nenhuma coluna espacial (geometry/geography) foi encontrada nessa
+            tabela. Volte e escolha outra tabela.
+          </p>
+          <div class="footerActions" style="margin-top: 14px">
+            <button class="btn btn-secondary" id="mapSelectBackBtn">
+              Voltar
+            </button>
+            <button class="btn btn-primary" id="mapOpenBtn" disabled>
+              Abrir mapa
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== MAPA: so aparece depois de escolher tabela + coluna ===== -->
+      <div id="mapView" class="hidden">
+        <div class="mapWrap">
+          <div class="mapSidebar">
+            <div>
+              <h3>Filtros</h3>
+              <div class="mapFilterField">
+                <label>Name</label
+                ><input id="mapFilterName" placeholder="Buscar por nome..." />
+              </div>
+              <div class="mapFilterField">
+                <label>Destinação</label
+                ><select id="mapFilterDestinacao">
+                  <option value="">Todas</option>
+                </select>
+              </div>
+              <div class="mapFilterField">
+                <label>Empreendimentos</label
+                ><select id="mapFilterLayer">
+                  <option value="">Todas</option>
+                </select>
+              </div>
+              <button
+                class="btn btn-secondary"
+                id="mapClearFiltersBtn"
+                style="width: 100%"
+              >
+                Limpar filtros
+              </button>
+            </div>
+            <div>
+              <h3>Estatisticas</h3>
+              <div class="mapStatsGrid" id="mapStatsGrid">
+                <div class="mapStatChip">
+                  <div class="val" id="mapStatTotal">-</div>
+                  <div class="lbl">Total</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="mapMain">
+            <div
+              id="mapCanvas"
+              role="application"
+              aria-label="Mapa interativo"
+            ></div>
+            <div class="mapToolbar">
+              <div class="mapSearchBox">
+                <span aria-hidden="true">&#128269;</span>
+                <input
+                  id="mapGeocodeInput"
+                  placeholder="Buscar endereco ou local..."
+                  aria-label="Buscar endereco"
+                />
+              </div>
+              <div
+                class="mapLayerSwitcher"
+                id="mapLayerSwitcher"
+                role="group"
+                aria-label="Camada do mapa"
+              ></div>
+            </div>
+            <div class="mapCtrlGroup">
+              <button
+                class="mapCtrlBtn"
+                id="mapZoomInBtn"
+                title="Aumentar zoom"
+                aria-label="Aumentar zoom"
+              >
+                +
+              </button>
+              <button
+                class="mapCtrlBtn"
+                id="mapZoomOutBtn"
+                title="Diminuir zoom"
+                aria-label="Diminuir zoom"
+              >
+                &minus;
+              </button>
+              <button
+                class="mapCtrlBtn"
+                id="mapLocateBtn"
+                title="Minha localizacao"
+                aria-label="Minha localizacao"
+              >
+                &#128205;
+              </button>
+              <button
+                class="mapCtrlBtn"
+                id="mapResetBtn"
+                title="Centralizar resultados"
+                aria-label="Centralizar resultados"
+              >
+                &#8635;
+              </button>
+              <button
+                class="mapCtrlBtn"
+                id="mapFullscreenBtn"
+                title="Tela cheia"
+                aria-label="Tela cheia"
+              >
+                &#9974;
+              </button>
+              <button
+                class="mapCtrlBtn"
+                id="mapChangeSourceBtn"
+                title="Trocar tabela/coluna de localizacao"
+                aria-label="Trocar fonte de dados"
+              >
+                &#9881;
+              </button>
+            </div>
+            <div class="mapLegend" id="mapLegend">
+              <strong style="font-size: 11px">Legenda</strong>
+            </div>
+            <div class="mapCoordReadout" id="mapCoordReadout"></div>
+            <div class="mapOverlayState hidden" id="mapLoadingState">
+              <div class="spinner"></div>
+              <p class="small">Carregando registros...</p>
+            </div>
+            <div class="mapOverlayState hidden" id="mapErrorState">
+              <p id="mapErrorMsg">Nao foi possivel carregar o mapa.</p>
+              <button class="btn btn-primary" id="mapRetryBtn">
+                Tentar novamente
+              </button>
+            </div>
+            <div class="mapOverlayState hidden" id="mapEmptyState">
+              <p>Nenhum registro encontrado para os filtros selecionados.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="toastRoot"></div>
+
+    <script src="/vendor/leaflet/leaflet.js"></script>
+    <script src="/vendor/leaflet.markercluster/leaflet.markercluster.js"></script>
+
+    <script src="./js/script.js"></script>
+  </body>
+</html>
