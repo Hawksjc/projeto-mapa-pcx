@@ -253,17 +253,17 @@
     {
       id: "positron",
       label: "Claro",
-      url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
+      url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png?key=cb1_2tfb_1_94f8ef545a85ef4c2451507a",
       subdomains: ["a", "b", "c"],
-      attribution: "&copy; CARTO",
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
       maxZoom: 20,
     },
     {
       id: "dark",
       label: "Escuro",
-      url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+      url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png?key=cb1_2tfb_1_94f8ef545a85ef4c2451507a",
       subdomains: ["a", "b", "c"],
-      attribution: "&copy; CARTO",
+      attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
       maxZoom: 20,
     },
     {
