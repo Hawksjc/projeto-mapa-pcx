@@ -289,9 +289,17 @@
       tileLayer = null,
       polygonLayer = null,
       markerLayer = null,
+      polygonClusterGroup = null,
       currentLayerId = "positron";
     var abortController = null,
-      lastItems = [];
+      lastItems = [],
+      itemLayers = []; // guarda o layer Leaflet criado para cada item de lastItems, na mesma ordem
+    /* A partir deste nivel de zoom (inclusive) os poligonos/marcadores
+     * individuais voltam a ser exibidos e a clusterizacao e desligada.
+     * Abaixo dele, os itens proximos entre si sao agrupados em clusters.
+     * Ajuste este numero para calibrar em que zoom os poligonos "aparecem"
+     * (zooms maiores = aproxima mais antes de desagrupar). */
+    var CLUSTER_ZOOM_THRESHOLD = 16;
     var selectedPolygonLayer = null; // garante que apenas 1 poligono fique com o destaque de "selecionado"
     var selTable = null,
       selColumn = null;
@@ -583,8 +591,24 @@
           onEachFeature: wirePolygonInteractions,
         });
         map.addLayer(polygonLayer);
-        markerLayer = L.layerGroup();
+        markerLayer = L.featureGroup();
         map.addLayer(markerLayer);
+        /* Clusterizacao: um markerClusterGroup (leaflet.markercluster, ja
+         * vendorizado no projeto) recebe um marcador invisivel no centro de
+         * cada poligono/marcador. Ele NAO substitui polygonLayer/markerLayer
+         * -- os dois conjuntos de camadas coexistem o tempo todo; apenas
+         * alternamos qual fica visivel no mapa conforme o zoom, em
+         * updateClusterVisibility(). Assim, a geometria/estilo/interacoes
+         * originais dos poligonos continuam intactas quando eles estao
+         * visiveis. */
+        polygonClusterGroup = L.markerClusterGroup({
+          iconCreateFunction: createClusterIcon,
+          showCoverageOnHover: false,
+          spiderfyOnMaxZoom: false,
+          maxClusterRadius: 70,
+          disableClusteringAtZoom: CLUSTER_ZOOM_THRESHOLD,
+        });
+        map.on("zoomend", updateClusterVisibility);
         map.on("mousemove", function (e) {
           var el = $("mapCoordReadout");
           if (el)
@@ -738,15 +762,18 @@
       }
     }
 
-    // Seleciona um unico poligono por vez: desfaz o destaque do poligono
-    // selecionado anteriormente (se houver) e aplica o destaque no novo.
+    // Seleciona um unico poligono/marcador por vez: desfaz o destaque do
+    // item selecionado anteriormente (se houver) e aplica o destaque no
+    // novo. Funciona tanto para poligonos (layer.setStyle) quanto para
+    // marcadores de ponto (L.circleMarker, que tambem tem setStyle).
     function selectPolygon(layer) {
+      if (!layer) return;
       if (selectedPolygonLayer && selectedPolygonLayer !== layer) {
         var previous = selectedPolygonLayer;
-        previous.setStyle(previous._baseStyle);
+        if (previous._baseStyle) previous.setStyle(previous._baseStyle);
       }
       selectedPolygonLayer = layer;
-      layer.setStyle(buildSelectedStyle(layer._baseStyle));
+      if (layer._baseStyle) layer.setStyle(buildSelectedStyle(layer._baseStyle));
       if (layer.bringToFront) layer.bringToFront();
     }
 
@@ -774,14 +801,24 @@
      * filtros aplicados (Name/Destinacao/Layer) e com qualquer atualizacao
      * dos dados -- sem depender de zoom/pan. Usa a geometria
      * (Polygon/MultiPolygon) ja vinda pronta da API, sem gerar nem
-     * simplificar geometria no cliente. */
+     * simplificar geometria no cliente.
+     *
+     * NOVO: alem de desenhar cada item, guarda em "itemLayers" o layer
+     * Leaflet correspondente a cada posicao de "lastItems" (na mesma
+     * ordem), para que focusOrFitToData() consiga localizar e destacar o
+     * poligono/marcador certo depois de um filtro, sem depender de clique. */
     function renderPolygonsFromCache() {
       polygonLayer.clearLayers();
       markerLayer.clearLayers();
+      if (polygonClusterGroup) polygonClusterGroup.clearLayers();
 
       selectedPolygonLayer = null;
+      itemLayers = [];
 
       lastItems.forEach(function (item) {
+        var clusterCenter = null;
+        var itemLayer = null;
+
         // POLÍGONO
         if (
           item.geometry &&
@@ -793,12 +830,15 @@
             geometry: item.geometry,
             properties: item,
           });
+          // addData acabou de criar (e adicionar) o layer deste feature ao
+          // final da lista interna do L.geoJSON -- pegamos a referencia
+          // exata para poder selecionar/dar zoom nele depois.
+          var layers = polygonLayer.getLayers();
+          itemLayer = layers[layers.length - 1];
 
-          return;
-        }
-
-        // LAT/LONG
-        if (item.latitude != null && item.longitude != null) {
+          clusterCenter = getFeatureCenter(item.geometry);
+        } else if (item.latitude != null && item.longitude != null) {
+          // LAT/LONG
           var marker = L.circleMarker(
             [Number(item.latitude), Number(item.longitude)],
             {
@@ -809,14 +849,102 @@
               weight: 2,
             },
           );
+          // Guarda o estilo base tambem para os marcadores de ponto, assim
+          // selectPolygon()/restorePolygonStyle() funcionam igual para os
+          // dois tipos de item (poligono e ponto).
+          marker._baseStyle = {
+            color: getDestinationColor(item.destinacao),
+            weight: 2,
+            opacity: 1,
+            fillColor: getDestinationColor(item.destinacao),
+            fillOpacity: 0.8,
+          };
 
           marker.on("click", function () {
+            selectPolygon(marker);
             showPopup(item, marker);
           });
 
           markerLayer.addLayer(marker);
+          itemLayer = marker;
+          clusterCenter = L.latLng(
+            Number(item.latitude),
+            Number(item.longitude),
+          );
+        }
+
+        itemLayers.push(itemLayer);
+
+        // Alimenta o cluster com um marcador invisivel no centro do item
+        // (poligono ou ponto), so para fins de agrupamento/contagem -- ele
+        // nunca e exibido diretamente, apenas os "circulos" de cluster que o
+        // markercluster gera a partir dele.
+        if (clusterCenter && polygonClusterGroup) {
+          polygonClusterGroup.addLayer(
+            L.marker(clusterCenter, {
+              opacity: 0,
+              interactive: false,
+              keyboard: false,
+            }),
+          );
         }
       });
+
+      updateClusterVisibility();
+    }
+
+    // Centro (bounding-box center) de uma geometria GeoJSON Polygon/
+    // MultiPolygon, usado apenas para posicionar o marcador "fantasma" que
+    // representa o poligono dentro do cluster. Nao requer nenhuma
+    // biblioteca adicional (turf etc.) -- reaproveita o proprio Leaflet.
+    function getFeatureCenter(geometry) {
+      try {
+        var tempLayer = L.geoJSON({ type: "Feature", geometry: geometry });
+        return tempLayer.getBounds().getCenter();
+      } catch (e) {
+        console.warn("[map] Falha ao calcular centro do poligono:", e);
+        return null;
+      }
+    }
+
+    // Icone customizado de cluster: circulo na cor primaria do projeto com
+    // a quantidade de poligonos/marcadores agrupados no centro. O tamanho
+    // cresce em 3 faixas conforme a quantidade, para dar uma pista visual
+    // rapida de "quantos" sem precisar ler o numero.
+    function createClusterIcon(cluster) {
+      var count = cluster.getChildCount();
+      var sizeClass = count < 10 ? "small" : count < 50 ? "medium" : "large";
+      // Tamanhos espelham exatamente .polygon-cluster-small/medium/large no
+      // CSS -- precisam ser informados aqui tambem para o Leaflet centralizar
+      // o icone corretamente sobre a coordenada do cluster (iconAnchor).
+      var px = count < 10 ? 36 : count < 50 ? 46 : 58;
+      return L.divIcon({
+        html: "<span>" + count + "</span>",
+        className: "polygon-cluster-icon polygon-cluster-" + sizeClass,
+        iconSize: L.point(px, px),
+      });
+    }
+
+    // Alterna, conforme o zoom atual, entre mostrar os clusters (zoom mais
+    // afastado) e mostrar os poligonos/marcadores individuais (zoom mais
+    // aproximado) -- SEM nunca substituir um pelo outro de forma
+    // permanente: os dois layers continuam existindo o tempo todo, apenas
+    // um deles fica fora do mapa a cada momento.
+    function updateClusterVisibility() {
+      if (!map || !polygonClusterGroup) return;
+      var zoomedOut = map.getZoom() < CLUSTER_ZOOM_THRESHOLD;
+
+      if (zoomedOut) {
+        if (!map.hasLayer(polygonClusterGroup))
+          map.addLayer(polygonClusterGroup);
+        if (map.hasLayer(polygonLayer)) map.removeLayer(polygonLayer);
+        if (map.hasLayer(markerLayer)) map.removeLayer(markerLayer);
+      } else {
+        if (map.hasLayer(polygonClusterGroup))
+          map.removeLayer(polygonClusterGroup);
+        if (!map.hasLayer(polygonLayer)) map.addLayer(polygonLayer);
+        if (!map.hasLayer(markerLayer)) map.addLayer(markerLayer);
+      }
     }
 
     function rowHtml(label, value) {
@@ -942,6 +1070,13 @@
           renderStats(lastItems);
           renderLegend(lastItems);
           setState(lastItems.length ? "ok" : "empty");
+          // CORRIGIDO: antes, "fitToData()" era chamado logo apos o
+          // "fetch(...)" (fora deste .then), entao rodava de forma
+          // assincrona ANTES da resposta da API chegar -- o zoom sempre
+          // refletia os poligonos da consulta ANTERIOR, nunca o resultado
+          // do filtro atual. Agora o enquadramento/zoom so acontece aqui,
+          // depois que "lastItems" e os poligonos ja foram atualizados.
+          focusOrFitToData();
         })
         .catch(function (err) {
           if (err && err.name === "AbortError") {
@@ -961,7 +1096,8 @@
           }
           setState("error", getErrorMessage(err));
         });
-      fitToData();
+      // NAO chamar fitToData()/focusOrFitToData() aqui -- ver comentario
+      // acima, dentro do .then() de sucesso.
     }
 
     function renderStats(items) {
@@ -1119,6 +1255,33 @@
       map.fitBounds(group.getBounds(), {
         padding: [40, 40],
       });
+    }
+
+    /* NOVO: decide entre focar em um unico resultado do filtro (zoom
+     * fechado + destaque de cor + popup aberto) ou enquadrar todos os
+     * resultados (comportamento anterior, quando ha 0 ou varios itens).
+     *
+     * Reaproveita "selectPolygon" -- a mesma funcao que ja aplicava a
+     * borda branca de destaque ao clicar em um poligono no mapa -- para
+     * que o item filtrado fique com a MESMA cor/destaque de selecao,
+     * resolvendo o problema de "nao aparecer cor alguma para identificar". */
+    function focusOrFitToData() {
+      if (!map) return;
+      if (lastItems.length === 1 && itemLayers.length === 1 && itemLayers[0]) {
+        var layer = itemLayers[0];
+        selectPolygon(layer);
+        if (layer.getBounds) {
+          // Poligono: enquadra toda a forma, com folga e um zoom maximo
+          // (evita aproximar demais em poligonos muito pequenos).
+          map.fitBounds(layer.getBounds(), { padding: [80, 80], maxZoom: 18 });
+        } else if (layer.getLatLng) {
+          // Ponto (lat/long): centraliza e da um zoom fechado.
+          map.flyTo(layer.getLatLng(), 17);
+        }
+        showPopup(lastItems[0], layer);
+      } else {
+        fitToData();
+      }
     }
 
     function wireControls() {
