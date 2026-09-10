@@ -298,8 +298,13 @@
      * individuais voltam a ser exibidos e a clusterizacao e desligada.
      * Abaixo dele, os itens proximos entre si sao agrupados em clusters.
      * Ajuste este numero para calibrar em que zoom os poligonos "aparecem"
-     * (zooms maiores = aproxima mais antes de desagrupar). */
-    var CLUSTER_ZOOM_THRESHOLD = 16;
+     * (zooms maiores = aproxima mais antes de desagrupar).
+     * REDUZIDO de 16 para 13: com 16 o usuario precisava aproximar demais
+     * (quase no nivel de quadra) para os poligonos aparecerem. Com 13 eles
+     * ja aparecem num zoom de bairro/regiao, bem mais proximo do que se
+     * espera visualmente, e ainda ha uma faixa de zoom afastada (< 13) em
+     * que tudo continua sendo agrupado em circulos numerados. */
+    var CLUSTER_ZOOM_THRESHOLD = 13;
     var selectedPolygonLayer = null; // garante que apenas 1 poligono fique com o destaque de "selecionado"
     var selTable = null,
       selColumn = null;
@@ -594,21 +599,43 @@
         markerLayer = L.featureGroup();
         map.addLayer(markerLayer);
         /* Clusterizacao: um markerClusterGroup (leaflet.markercluster, ja
-         * vendorizado no projeto) recebe um marcador invisivel no centro de
-         * cada poligono/marcador. Ele NAO substitui polygonLayer/markerLayer
-         * -- os dois conjuntos de camadas coexistem o tempo todo; apenas
+         * vendorizado no projeto) recebe um marcador no centro de cada
+         * poligono/marcador. Ele NAO substitui polygonLayer/markerLayer --
+         * os dois conjuntos de camadas coexistem o tempo todo; apenas
          * alternamos qual fica visivel no mapa conforme o zoom, em
          * updateClusterVisibility(). Assim, a geometria/estilo/interacoes
          * originais dos poligonos continuam intactas quando eles estao
-         * visiveis. */
+         * visiveis.
+         *
+         * "singleMarkerMode: true" -- SEM esta opcao, o leaflet.markercluster
+         * so desenha o icone de circulo (iconCreateFunction) quando ha MAIS
+         * DE UM marcador proximo o suficiente para formar um grupo; um
+         * marcador isolado (sem vizinhos dentro do raio de agrupamento --
+         * exatamente o caso de empreendimentos filtrados muito distantes
+         * entre si) era exibido "cru", usando o icone padrao do marcador
+         * fantasma (que fica com opacity 0, logo invisivel). Resultado: com
+         * o mapa afastado, itens isolados ficavam sem nenhuma representacao
+         * visual. Com singleMarkerMode, TODO marcador -- mesmo sozinho --
+         * passa por createClusterIcon() e vira um circulo numerado (com "1"
+         * quando esta sozinho), igual a qualquer outro grupo. */
         polygonClusterGroup = L.markerClusterGroup({
           iconCreateFunction: createClusterIcon,
+          singleMarkerMode: true,
           showCoverageOnHover: false,
           spiderfyOnMaxZoom: false,
           maxClusterRadius: 70,
           disableClusteringAtZoom: CLUSTER_ZOOM_THRESHOLD,
         });
+        /* "zoomend" cobre zoom por scroll/botoes; "moveend" e adicionado
+         * como reforco porque tambem dispara ao final de qualquer
+         * fitBounds()/flyTo() programatico (usado pelos filtros) -- inclusive
+         * nos casos em que o nivel de zoom final e igual ao atual (ai
+         * "zoomend" nao dispara, so "moveend"). Sem isso, um filtro que
+         * enquadra os resultados sem mudar o zoom podia deixar a
+         * visibilidade poligono/cluster desatualizada. A funcao e barata e
+         * idempotente, entao chama-la a mais nao causa problema. */
         map.on("zoomend", updateClusterVisibility);
+        map.on("moveend", updateClusterVisibility);
         map.on("mousemove", function (e) {
           var el = $("mapCoordReadout");
           if (el)
@@ -875,15 +902,19 @@
 
         itemLayers.push(itemLayer);
 
-        // Alimenta o cluster com um marcador invisivel no centro do item
-        // (poligono ou ponto), so para fins de agrupamento/contagem -- ele
-        // nunca e exibido diretamente, apenas os "circulos" de cluster que o
-        // markercluster gera a partir dele.
+        // Alimenta o cluster com um marcador no centro do item (poligono ou
+        // ponto), usado tanto para agrupamento/contagem quanto -- com
+        // singleMarkerMode ativo (ver openMap()) -- como a propria
+        // representacao visual (circulo com "1") quando o item estiver
+        // isolado, sem vizinhos por perto. Por isso NAO fica com opacity 0
+        // nem interactive:false: quando faz parte de um grupo com mais de um
+        // item, o leaflet.markercluster o remove do mapa automaticamente e
+        // mostra so o icone do cluster -- nunca ha duplicidade visual.
+        // Interativo por design: o clique padrao do markercluster ja da zoom
+        // no local (zoomToBoundsOnClick), revelando o poligono real.
         if (clusterCenter && polygonClusterGroup) {
           polygonClusterGroup.addLayer(
             L.marker(clusterCenter, {
-              opacity: 0,
-              interactive: false,
               keyboard: false,
             }),
           );
@@ -900,11 +931,37 @@
     function getFeatureCenter(geometry) {
       try {
         var tempLayer = L.geoJSON({ type: "Feature", geometry: geometry });
-        return tempLayer.getBounds().getCenter();
+        var b = tempLayer.getBounds();
+        if (b.isValid()) return b.getCenter();
       } catch (e) {
         console.warn("[map] Falha ao calcular centro do poligono:", e);
-        return null;
       }
+      // Fallback: extrai a primeira coordenada bruta da geometria. Garante
+      // que TODO item com geometria sempre ganhe um ponto-fantasma no
+      // agrupamento (circulos) -- sem isso, um item cujo calculo de bounds
+      // falhasse ficaria sem representacao nenhuma quando o mapa estivesse
+      // afastado (nem poligono, por estar fora do zoom, nem circulo, por
+      // nao ter entrado no cluster).
+      try {
+        var coords = geometry && geometry.coordinates;
+        while (Array.isArray(coords) && Array.isArray(coords[0])) {
+          coords = coords[0];
+        }
+        if (
+          Array.isArray(coords) &&
+          coords.length >= 2 &&
+          Number.isFinite(coords[0]) &&
+          Number.isFinite(coords[1])
+        ) {
+          return L.latLng(coords[1], coords[0]);
+        }
+      } catch (e2) {
+        console.warn(
+          "[map] Fallback de centro do poligono tambem falhou:",
+          e2,
+        );
+      }
+      return null;
     }
 
     // Icone customizado de cluster: circulo na cor primaria do projeto com
@@ -1233,28 +1290,57 @@
       loadData();
     }
 
+    /* Calcula os bounds reais dos itens atualmente carregados (poligonos +
+     * marcadores de ponto), estendendo um L.latLngBounds vazio apenas com
+     * bounds/coordenadas VALIDAS de cada layer individual.
+     *
+     * ANTES: o codigo fazia `new L.featureGroup([polygonLayer, markerLayer])
+     * .getBounds()`. Como e comum uma fonte de dados ter SOMENTE poligonos
+     * OU SOMENTE pontos, um dos dois layers fica vazio -- e o getBounds()
+     * de um featureGroup vazio retorna um LatLngBounds INVALIDO. Ao unir os
+     * bounds do grupo (valido) com esse bounds vazio (invalido), o
+     * resultado final ficava corrompido, e map.fitBounds() enquadrava o
+     * mapa num zoom/posicao sem relacao real com os dados -- exatamente o
+     * sintoma relatado: apos um filtro, o mapa "ficava muito afastado" e
+     * nem poligonos nem circulos apareciam (porque a vista nem chegava
+     * perto de onde os dados realmente estao).
+     *
+     * AGORA: comecamos com um bounds vazio e so o estendemos com bounds
+     * (poligonos) ou pontos (marcadores) que sejam individualmente
+     * validos, nunca com o bounds de um layer/grupo vazio. */
+    function getDataBounds() {
+      var bounds = L.latLngBounds([]);
+      polygonLayer.eachLayer(function (layer) {
+        if (layer.getBounds) {
+          var b = layer.getBounds();
+          if (b.isValid()) bounds.extend(b);
+        }
+      });
+      markerLayer.eachLayer(function (layer) {
+        if (layer.getLatLng) bounds.extend(layer.getLatLng());
+      });
+      return bounds;
+    }
+
     function fitToData() {
       if (!map) return;
 
-      var bounds = [];
+      var bounds = getDataBounds();
+      if (!bounds.isValid()) return;
 
-      polygonLayer.eachLayer(function (layer) {
-        if (layer.getBounds) {
-          bounds.push(layer.getBounds());
-        }
-      });
-
-      markerLayer.eachLayer(function (layer) {
-        bounds.push(layer.getLatLng());
-      });
-
-      if (!bounds.length) return;
-
-      var group = new L.featureGroup([polygonLayer, markerLayer]);
-
-      map.fitBounds(group.getBounds(), {
+      /* "maxZoom" evita o extremo oposto (aproximar demais quando os
+       * resultados filtrados estao todos muito proximos uns dos outros) --
+       * mesma logica ja usada no enquadramento de um unico item, abaixo. */
+      map.fitBounds(bounds, {
         padding: [40, 40],
+        maxZoom: 18,
       });
+
+      /* Garante que poligono/circulo fique correto mesmo se o fitBounds
+       * nao mudar o nivel de zoom atual (nesse caso "zoomend" nao dispara;
+       * "moveend" cobre a maioria dos casos, mas chamamos aqui tambem de
+       * forma explicita e imediata, sem depender de nenhum evento). */
+      updateClusterVisibility();
     }
 
     /* NOVO: decide entre focar em um unico resultado do filtro (zoom
@@ -1278,6 +1364,9 @@
           // Ponto (lat/long): centraliza e da um zoom fechado.
           map.flyTo(layer.getLatLng(), 17);
         }
+        // Garante a decisao poligono/circulo mesmo antes do evento de
+        // fim de zoom/movimento (ver comentario em fitToData()).
+        updateClusterVisibility();
         showPopup(lastItems[0], layer);
       } else {
         fitToData();
