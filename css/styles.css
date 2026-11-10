@@ -115,6 +115,26 @@ button {
   background: var(--accent);
 }
 
+.topbar .topbarLogout {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s, color 0.15s;
+}
+
+.topbar .topbarLogout:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
 /* ============================================================
    CONTAINER DA PÁGINA
    ============================================================ */

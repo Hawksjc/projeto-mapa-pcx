@@ -55,6 +55,10 @@
       opts.body = JSON.stringify(body);
     }
     return fetch(url, opts).then(function (res) {
+      if (res.status === 401) {
+        window.location.replace("/login");
+        return new Promise(function () {});
+      }
       return res
         .json()
         .catch(function () {
@@ -953,6 +957,10 @@
               return {};
             })
             .then(function (data) {
+              if (r.status === 401) {
+                window.location.replace("/login");
+                return new Promise(function () {});
+              }
               if (!r.ok) {
                 var err = new Error(
                   data.error || "Erro HTTP " + r.status + " ao carregar o mapa",
@@ -1275,6 +1283,19 @@
 
     return { enter: enter };
   })();
+
+  /* ==================== SESSAO ==================== */
+  var logoutBtn = $("logoutBtn");
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", function () {
+      logoutBtn.disabled = true;
+      fetch("/auth/logout", { method: "POST", credentials: "same-origin" })
+        .catch(function () {})
+        .then(function () {
+          window.location.replace("/login");
+        });
+    });
+  }
 
   /* ==================== INICIALIZACAO ==================== */
   MapModule.enter();

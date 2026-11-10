@@ -186,6 +186,8 @@ async function previewTable(tableName, limit) {
 
 /* ### REGIAO: EXPRESS APP ### */
 const app = express();
+/* Autenticacao (Supabase): precisa vir antes de qualquer rota/estatico. */
+require("./lib/auth").install(app);
 app.use(
   express.static(__dirname, {
     index: false,
