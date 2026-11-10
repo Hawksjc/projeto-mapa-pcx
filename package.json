@@ -5,7 +5,8 @@
   "description": "Mapa de empreendimentos (SDUH/PE) - PostgreSQL/PostGIS + Leaflet, sem dependencias externas de CDN.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "hash-password": "node scripts/hash-password.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

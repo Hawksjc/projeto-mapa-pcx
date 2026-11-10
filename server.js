@@ -305,12 +305,9 @@ app.get("/api/db/tables/:tableName/preview", async (req, res) => {
  *
  * Os demais campos (titulo, status, municipio etc.) continuam usando a
  * resolucao por candidatos, agora aplicada a tabela que o usuario escolheu. */
-const MAP_CONFIG_KEY = "map_data_source";
-/* Fonte padrao do mapa: SELECT * FROM public.predio_caixao, coluna espacial "geom".
- * Usada apenas quando o usuario ainda nao configurou nenhuma fonte em app_settings
- * (tela de configuracao do mapa). Se a coluna configurada deixar de ser valida
- * (ex: tabela renomeada), o endpoint /api/mapa volta a pedir configuracao. */
-const DEFAULT_MAP_CONFIG = {
+/* Fonte FIXA do mapa: public.predio_caixao, coluna espacial "geom". Nao ha
+ * mais selecao pelo usuario nem leitura de app_settings. */
+const FIXED_MAP_CONFIG = {
   schema: "public",
   table: "predio_caixao",
   column: "geom",
@@ -375,8 +372,7 @@ async function listSpatialColumns() {
 }
 
 async function getMapConfig() {
-  const saved = await getAppSetting(MAP_CONFIG_KEY);
-  return saved || DEFAULT_MAP_CONFIG;
+  return FIXED_MAP_CONFIG;
 }
 
 /* Reconfirma que schema/tabela/coluna salvos ainda apontam para uma coluna
@@ -491,57 +487,20 @@ app.get("/api/mapa/config", async (req, res) => {
   }
 });
 
-app.post("/api/mapa/config", async (req, res) => {
-  try {
-    const { schema, table, column } = req.body || {};
-    if (!schema || !table || !column)
-      return res
-        .status(400)
-        .json({ error: "Informe schema, tabela e coluna." });
-    const spatialCol = await resolveConfiguredSpatialColumn({
-      schema,
-      table,
-      column,
-    });
-    if (!spatialCol)
-      return res.status(400).json({
-        error:
-          "Essa coluna nao e uma coluna espacial (geometry/geography) valida.",
-      });
-    await setAppSetting(MAP_CONFIG_KEY, { schema, table, column });
-    logEvent("info", "mapa", "Fonte de dados do mapa configurada", {
-      schema,
-      table,
-      column,
-    });
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(err.httpStatus || 500).json({ error: err.message });
-  }
-});
-
 /* ---- Dados do mapa ---- */
 app.get("/api/mapa", async (req, res) => {
   console.log("[mapa] GET /api/mapa - filtros recebidos:", req.query);
   try {
     const config = await getMapConfig();
-    if (!config) {
-      console.warn("[mapa] Nenhuma fonte de dados configurada ainda.");
-      return res.status(409).json({
-        needsConfig: true,
-        error: "Nenhuma fonte de dados configurada para o mapa ainda.",
-      });
-    }
     const spatialCol = await resolveConfiguredSpatialColumn(config);
     if (!spatialCol) {
       console.warn(
         "[mapa] Fonte configurada nao e mais uma coluna espacial valida:",
         config,
       );
-      return res.status(409).json({
-        needsConfig: true,
+      return res.status(500).json({
         error:
-          "A fonte de dados configurada nao e mais uma coluna espacial valida. Selecione novamente.",
+          "A coluna public.predio_caixao.geom nao e uma coluna espacial (geometry/geography) valida.",
       });
     }
     console.log(
@@ -649,7 +608,6 @@ app.get("/api/mapa", async (req, res) => {
 app.get("/api/mapa/filtros", async (req, res) => {
   try {
     const config = await getMapConfig();
-    if (!config) return res.json({});
     const spatialCol = await resolveConfiguredSpatialColumn(config);
     if (!spatialCol) return res.json({});
     const cols = await resolveMapColumns(config.schema, config.table);

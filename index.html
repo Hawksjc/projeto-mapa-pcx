@@ -26,63 +26,8 @@
     </div>
 
     <div class="page">
-      <!-- ===== TELA DE SELECAO: aparece antes do mapa abrir ===== -->
-      <div id="mapSelectView">
-        <h2>Mapa</h2>
-        <p class="subtitle">
-          Escolha a tabela do banco e a coluna de localizacao para visualizar os
-          registros no mapa.
-        </p>
-        <div id="mapSelectError" class="errorMsg hidden"></div>
-
-        <div id="mapSelectStepTable">
-          <div class="field">
-            <label>Passo 1 de 2 &mdash; Tabela de origem</label
-            ><input
-              class="searchBox"
-              id="mapSelectTableSearch"
-              placeholder="Pesquisar tabela..."
-            />
-            <div class="tableList" id="mapSelectTableList"></div>
-          </div>
-          <div class="tablePreviewWrap hidden" id="mapSelectPreviewWrap">
-            <table class="dataPreview" id="mapSelectPreviewTable"></table>
-          </div>
-        </div>
-
-        <div id="mapSelectStepColumn" class="hidden">
-          <p class="small">
-            Tabela selecionada: <strong id="mapSelectSelectedTable"></strong>
-          </p>
-          <label
-            >Passo 2 de 2 &mdash; Coluna responsavel pela localizacao</label
-          >
-          <div
-            class="tableList"
-            id="mapSelectColumnList"
-            style="margin-top: 6px"
-          ></div>
-          <p
-            class="small hidden"
-            id="mapSelectNoSpatial"
-            style="margin-top: 8px"
-          >
-            Nenhuma coluna espacial (geometry/geography) foi encontrada nessa
-            tabela. Volte e escolha outra tabela.
-          </p>
-          <div class="footerActions" style="margin-top: 14px">
-            <button class="btn btn-secondary" id="mapSelectBackBtn">
-              Voltar
-            </button>
-            <button class="btn btn-primary" id="mapOpenBtn" disabled>
-              Abrir mapa
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- ===== MAPA: so aparece depois de escolher tabela + coluna ===== -->
-      <div id="mapView" class="hidden">
+      <!-- ===== MAPA: abre direto (fonte fixa: predio_caixao / geom) ===== -->
+      <div id="mapView">
         <div class="mapWrap">
           <div class="mapSidebar">
             <div>
@@ -183,14 +128,6 @@
                 aria-label="Tela cheia"
               >
                 &#9974;
-              </button>
-              <button
-                class="mapCtrlBtn"
-                id="mapChangeSourceBtn"
-                title="Trocar tabela/coluna de localizacao"
-                aria-label="Trocar fonte de dados"
-              >
-                &#9881;
               </button>
             </div>
             <div class="mapLegend" id="mapLegend">

@@ -306,8 +306,6 @@
      * que tudo continua sendo agrupado em circulos numerados. */
     var CLUSTER_ZOOM_THRESHOLD = 13;
     var selectedPolygonLayer = null; // garante que apenas 1 poligono fique com o destaque de "selecionado"
-    var selTable = null,
-      selColumn = null;
 
     /* Extrai uma mensagem de erro sempre legivel. Usada em todo o modulo para
      * evitar o problema de exibir literalmente "undefined" quando o valor
@@ -328,169 +326,18 @@
 
     /* ================================================================
      * ENTRADA
-     * Sempre mostra a tela de selecao primeiro: o mapa em si so aparece
-     * depois que o usuario escolhe explicitamente a tabela e a coluna de
-     * localizacao (geometry/geography). Nada e assumido automaticamente.
+     * O mapa abre direto: a fonte de dados e fixa (tabela predio_caixao,
+     * coluna de localizacao geom), definida no servidor. Nao ha mais etapa
+     * de selecao de tabela/coluna.
      * ================================================================ */
     function enter() {
-      console.log("[map] Painel do mapa aberto (tela de selecao de fonte).");
-      showEl("mapSelectView");
-      hideEl("mapView");
-      selTable = null;
-      selColumn = null;
-      setError("mapSelectError", null);
-      hideEl("mapSelectPreviewWrap");
-      hideEl("mapSelectStepColumn");
-      showEl("mapSelectStepTable");
-      $("mapOpenBtn").disabled = true;
-      loadSelectTables();
+      console.log("[map] Abrindo mapa direto (fonte fixa: predio_caixao / geom).");
+      showEl("mapView");
+      openMap();
     }
-
-    function backToSelect() {
-      hideEl("mapView");
-      enter();
-    }
-
-    /* ---------------- Passo 1: escolher a tabela ---------------- */
-    function loadSelectTables() {
-      api("GET", "/api/db/tables")
-        .then(function (data) {
-          state.tables = data.tables;
-          renderSelectTableList(state.tables);
-        })
-        .catch(function (err) {
-          console.error("[map] Falha ao listar tabelas do banco:", err);
-          setError("mapSelectError", getErrorMessage(err));
-        });
-    }
-
-    function renderSelectTableList(tables) {
-      renderTableList("mapSelectTableList", tables, function (name) {
-        selectFromList("mapSelectTableList", name);
-        selTable = name;
-        selColumn = null;
-        $("mapOpenBtn").disabled = true;
-        api("GET", "/api/db/tables/" + name + "/preview")
-          .then(function (data) {
-            var headers = data.columns.map(function (c) {
-              return c.column_name;
-            });
-            var rows = data.rows.slice(0, 5).map(function (r) {
-              return headers.map(function (h) {
-                return r[h];
-              });
-            });
-            showEl("mapSelectPreviewWrap");
-            renderPreviewTable("mapSelectPreviewTable", headers, rows);
-          })
-          .catch(function () {
-            /* preview e apenas informativo */
-          });
-        goToColumnStep(name);
-      });
-    }
-
-    $("mapSelectTableSearch").addEventListener("input", function () {
-      var q = this.value.toLowerCase();
-      renderSelectTableList(
-        state.tables.filter(function (t) {
-          return t.table_name.toLowerCase().indexOf(q) >= 0;
-        }),
-      );
-    });
-    $("mapSelectBackBtn").addEventListener("click", function () {
-      hideEl("mapSelectStepColumn");
-      showEl("mapSelectStepTable");
-    });
-
-    /* ---------------- Passo 2: escolher a coluna de localizacao ---------------- */
-    function goToColumnStep(tableName) {
-      setError("mapSelectError", null);
-      $("mapSelectSelectedTable").textContent = tableName;
-      api("GET", "/api/mapa/fontes")
-        .then(function (data) {
-          var cols = (data.fontes || []).filter(function (f) {
-            return f.schema === "public" && f.table === tableName;
-          });
-          hideEl("mapSelectStepTable");
-          showEl("mapSelectStepColumn");
-          if (!cols.length) {
-            showEl("mapSelectNoSpatial");
-            $("mapSelectColumnList").innerHTML = "";
-            return;
-          }
-          hideEl("mapSelectNoSpatial");
-          renderSelectColumnList(cols);
-        })
-        .catch(function (err) {
-          console.error(
-            "[map] Falha ao listar colunas espaciais da tabela " +
-              tableName +
-              ":",
-            err,
-          );
-          setError("mapSelectError", getErrorMessage(err));
-        });
-    }
-
-    function renderSelectColumnList(cols) {
-      var container = $("mapSelectColumnList");
-      container.innerHTML = cols
-        .map(function (c) {
-          return (
-            '<div class="tableListItem" data-col="' +
-            escapeHtml(c.column) +
-            '">' +
-            escapeHtml(c.column) +
-            '<span class="small">' +
-            escapeHtml(c.kind) +
-            (c.srid ? " &middot; SRID " + c.srid : "") +
-            "</span></div>"
-          );
-        })
-        .join("");
-      qsa(".tableListItem", container).forEach(function (item) {
-        item.addEventListener("click", function () {
-          selectFromList("mapSelectColumnList", item.getAttribute("data-col"));
-          selColumn = item.getAttribute("data-col");
-          $("mapOpenBtn").disabled = false;
-        });
-      });
-    }
-
-    /* ---------------- Confirmar e abrir o mapa ---------------- */
-    $("mapOpenBtn").addEventListener("click", function () {
-      if (!selTable || !selColumn) return;
-      var btn = this;
-      btn.disabled = true;
-      setError("mapSelectError", null);
-      console.log(
-        "[map] Configurando fonte de dados do mapa:",
-        selTable,
-        selColumn,
-      );
-      api("POST", "/api/mapa/config", {
-        schema: "public",
-        table: selTable,
-        column: selColumn,
-      })
-        .then(function () {
-          hideEl("mapSelectView");
-          showEl("mapView");
-          openMap();
-        })
-        .catch(function (err) {
-          console.error(
-            "[map] Falha ao salvar a configuracao da fonte de dados:",
-            err,
-          );
-          setError("mapSelectError", getErrorMessage(err));
-          btn.disabled = false;
-        });
-    });
 
     /* ================================================================
-     * MAPA -- so e construido depois que a tabela + coluna sao escolhidas.
+     * MAPA -- construido ao abrir (fonte fixa: predio_caixao / geom).
      *
      * IMPORTANTE (causa raiz do bug "Map container is already initialized"):
      * o Leaflet marca o elemento DOM usado em L.map(...) com uma propriedade
@@ -1143,14 +990,6 @@
             return;
           }
           console.error("[map] Falha ao carregar dados do mapa:", err);
-          if (err && err.data && err.data.needsConfig) {
-            toast(
-              "A fonte configurada nao e mais valida. Escolha novamente.",
-              "error",
-            );
-            backToSelect();
-            return;
-          }
           setState("error", getErrorMessage(err));
         });
       // NAO chamar fitToData()/focusOrFitToData() aqui -- ver comentario
@@ -1402,7 +1241,6 @@
           },
         );
       });
-      $("mapChangeSourceBtn").addEventListener("click", backToSelect);
       $("mapGeocodeInput").addEventListener("keydown", function (e) {
         if (e.key !== "Enter") return;
         var q = this.value.trim();
